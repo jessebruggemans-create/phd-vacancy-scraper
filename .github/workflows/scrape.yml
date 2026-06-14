@@ -2,9 +2,9 @@ name: PhD Vacancy Scraper
 
 on:
   schedule:
-    # 07:00 UTC = 08:00 CET (winter) / 09:00 CEST (summer) — every Monday
+    # 07:00 UTC = 08:00 CET (winter) / 09:00 CEST (summer) -- every Monday
     - cron: "0 7 * * 1"
-  # Allow a manual run from the GitHub Actions UI (useful for testing)
+  # Allow a manual run from the GitHub Actions UI
   workflow_dispatch:
 
 jobs:
@@ -31,8 +31,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # The SQLite database persists between runs via the Actions cache.
-      # Each run restores the previous DB, adds new entries, and saves a fresh copy.
       - name: Restore job database
         uses: actions/cache@v4
         with:
