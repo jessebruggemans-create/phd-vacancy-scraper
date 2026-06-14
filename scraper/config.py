@@ -10,7 +10,7 @@ KEYWORDS: list[str] = [
     "international security", "global security", "human security",
     "security studies", "strategic studies", "security policy",
     "defence studies", "defense studies", "defence policy", "defense policy",
-    "military studies", "military affairs", "military history",
+    "military", "military studies", "military affairs", "military history",
     "peace studies", "conflict studies", "conflict resolution",
     "peace and conflict", "war and peace",
     # ── Political science / IR theory ─────────────────────────────────────────

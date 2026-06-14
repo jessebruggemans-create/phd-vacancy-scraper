@@ -124,7 +124,7 @@ def scrape() -> list[dict]:
     """
     all_jobs: list[dict] = []
     seen_ids: set[str] = set()
-    max_pages = 100  # EURAXESS returns ~10 cards/page; 100 pages = 1,000 max listings
+    max_pages = 50   # EURAXESS returns ~10 cards/page; ~42 pages exist; empty-page break exits early
 
     for page_num in range(max_pages):
         if page_num == 0:

@@ -583,7 +583,9 @@ def _scrape_tno() -> list[dict]:
                 continue
             seen.add(jid)
             found_any = True
-            jobs.append(_tag({
+            # TNO is a broad applied-science organisation — do NOT set
+            # always_include so that keyword / social-science filters apply.
+            jobs.append({
                 "id":          jid,
                 "title":       title,
                 "institution": "TNO",
@@ -592,7 +594,7 @@ def _scrape_tno() -> list[dict]:
                 "url":         full_url,
                 "source":      "TNO",
                 "description": "",
-            }))
+            })
 
         if not found_any:
             break
