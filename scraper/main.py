@@ -22,13 +22,14 @@ from scraper.filter import is_eligible, is_english_or_dutch, is_relevant, keywor
 from scraper.state import cleanup_old, init_db, is_new, upsert_job
 
 from scraper.sources import academic_transfer, euraxess
-from scraper.sources import universities_be, universities_nl, think_tanks
+from scraper.sources import universities_be, universities_nl, universities_de, think_tanks
 
 ALL_SCRAPERS = [
     academic_transfer.scrape,
     euraxess.scrape,
     universities_be.scrape,
     universities_nl.scrape,
+    universities_de.scrape,
     think_tanks.scrape,
 ]
 

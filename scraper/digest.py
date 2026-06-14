@@ -197,7 +197,7 @@ def build_html(jobs: list[dict]) -> str:
         portals_by_country[country].append((name, url))
 
     portal_sections = ""
-    for code in ("BE", "NL", "DE", "FR"):
+    for code in ("BE", "NL", "DE", "FR", "Other"):
         entries = portals_by_country.get(code, [])
         if not entries:
             continue
@@ -216,7 +216,10 @@ def build_html(jobs: list[dict]) -> str:
         "AcademicTransfer &middot; EURAXESS (BE/NL/DE/FR) &middot; "
         "UGent &middot; VUB &middot; UHasselt &middot; "
         "Utrecht &middot; Groningen &middot; VU &middot; Radboud &middot; Maastricht &middot; "
+        "EUR Rotterdam &middot; ISS Den Haag &middot; Twente &middot; "
+        "T&uuml;bingen (RSS) &middot; "
         "Egmont &middot; HCSS &middot; Asser &middot; Flemish&nbsp;Peace&nbsp;Institute &middot; "
+        "GRIP &middot; IRIS &middot; TNO &middot; NIOD &middot; "
         "SWP&nbsp;Berlin &middot; DGAP &middot; IFSH"
     )
     manual = " &middot; ".join(

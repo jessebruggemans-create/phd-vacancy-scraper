@@ -6,9 +6,12 @@ Confirmed working:
   VU Amsterdam -- workingat.vu.nl (HTML)
   Radboud      -- ru.nl RSS feed (/werken-bij/vacatures/feed)
   Maastricht   -- vacancies.maastrichtuniversity.nl (HTML, ?q=phd+student)
+  EUR Rotterdam-- eur.nl/en/working-at-eur/vacancies/overview (HTML)
+  ISS Den Haag -- iss.nl/en/about-iss/vacancies (HTML, Erasmus/EUR graduate school)
+  Twente       -- utwentecareers.nl/en/vacancies/?type=WP (HTML)
 
 JS-rendered / blocked (appear on AcademicTransfer/EURAXESS instead):
-  Leiden, UvA, Tilburg, EUR
+  Leiden, UvA, Tilburg
 """
 import logging
 import re
@@ -292,12 +295,178 @@ def _scrape_maastricht() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# EUR Rotterdam (Erasmus University Rotterdam)
+# Vacancies overview page; job cards link to /en/working-at-eur/vacancies/{slug}
+# ---------------------------------------------------------------------------
+_EUR_BASE = "https://www.eur.nl"
+_EUR_URL  = f"{_EUR_BASE}/en/working-at-eur/vacancies/overview"
+
+
+def _scrape_eur() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_EUR_URL)
+    if not soup:
+        logger.info("[EUR] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    for a in soup.select("a[href*='/en/working-at-eur/vacancies/']"):
+        href = a.get("href", "")
+        # skip the overview page itself and any anchor/filter links
+        if not href or href.rstrip("/").endswith("/vacancies/overview"):
+            continue
+        if any(skip in href for skip in ["#", "?", "javascript:", "mailto:"]):
+            continue
+        title = clean_text(a)
+        if not title or len(title) < 5:
+            continue
+        full_url = make_absolute(href, _EUR_BASE)
+        jid = job_id(title, full_url)
+        if jid in seen:
+            continue
+        seen.add(jid)
+        jobs.append({
+            "id":          jid,
+            "title":       title,
+            "institution": "Erasmus University Rotterdam",
+            "location":    "Rotterdam, NL",
+            "deadline":    "",
+            "url":         full_url,
+            "source":      "EUR Rotterdam",
+            "description": "",
+        })
+
+    logger.info("[EUR] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
+# ISS The Hague (International Institute of Social Studies, Erasmus/EUR)
+# Vacancies page: iss.nl/en/about-iss/vacancies
+# ---------------------------------------------------------------------------
+_ISS_BASE = "https://www.iss.nl"
+_ISS_URL  = f"{_ISS_BASE}/en/about-iss/vacancies"
+
+
+def _scrape_iss() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_ISS_URL)
+    if not soup:
+        logger.info("[ISS] 0 listings.")
+        return jobs
+
+    text = soup.get_text().lower()
+    if any(phrase in text for phrase in
+           ["no current vacancies", "no vacancies", "no open positions",
+            "currently no", "geen vacatures"]):
+        logger.info("[ISS] no current vacancies on page.")
+        return jobs
+
+    seen: set[str] = set()
+    # Look for job links in page content -- ISS typically posts as content links
+    main = soup.select_one("main, article, [class*='content'], [class*='entry']") or soup
+    for a in main.select("a[href]"):
+        href  = a.get("href", "")
+        title = clean_text(a)
+        if not title or len(title) < 8:
+            continue
+        if any(skip in href for skip in ["#", "mailto:", "javascript:", "tel:"]):
+            continue
+        if href.rstrip("/") in [_ISS_URL, "/en/about-iss/vacancies"]:
+            continue
+        # Only follow links to iss.nl, eur.nl, or academictransfer
+        if not any(domain in href for domain in
+                   ["iss.nl", "eur.nl", "academictransfer", "utwentecareers"]):
+            if not href.startswith("/"):
+                continue
+        full_url = make_absolute(href, _ISS_BASE)
+        jid = job_id(title, full_url)
+        if jid in seen:
+            continue
+        seen.add(jid)
+        jobs.append({
+            "id":          jid,
+            "title":       title,
+            "institution": "ISS Den Haag (Erasmus)",
+            "location":    "The Hague, NL",
+            "deadline":    "",
+            "url":         full_url,
+            "source":      "ISS Den Haag",
+            "description": "",
+        })
+
+    logger.info("[ISS] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
+# University of Twente -- utwentecareers.nl (static HTML, all on one page)
+# Job links follow pattern /en/vacancies/{id}/{slug}/
+# ---------------------------------------------------------------------------
+_TWENTE_BASE = "https://utwentecareers.nl"
+_TWENTE_URL  = f"{_TWENTE_BASE}/en/vacancies/?type=WP"
+
+
+def _scrape_twente() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_TWENTE_URL)
+    if not soup:
+        logger.info("[Twente] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    for a in soup.select("a[href*='/en/vacancies/']"):
+        href = a.get("href", "")
+        # Skip the listing page, filter tabs, and non-vacancy links
+        if not href:
+            continue
+        # Must have a numeric vacancy ID in the path
+        if not re.search(r"/en/vacancies/\d+/", href):
+            continue
+        title_raw = clean_text(a)
+        if not title_raw or len(title_raw) < 5:
+            continue
+        # The link text often includes metadata after the actual title
+        # (e.g. "PhD position in XAcademic staffPhDMasterEEMCS40 hr.")
+        # Strip suffix starting with common category markers
+        title = re.sub(
+            r"(?i)(Academic\s+staff|Support\s+staff|PhD\b|Postdoc\b|\d{2,3}\s*hr\.?|"
+            r"Master\b|Bachelor\b|EEMCS|BMS|TNW|ITC|BMS).*$",
+            "",
+            title_raw,
+        ).strip().rstrip("A")  # trailing "A" from "Academic staffA"
+
+        if not title or len(title) < 5:
+            title = title_raw[:120]
+
+        full_url = make_absolute(href, _TWENTE_BASE)
+        jid = job_id(title, full_url)
+        if jid in seen:
+            continue
+        seen.add(jid)
+        jobs.append({
+            "id":          jid,
+            "title":       title,
+            "institution": "University of Twente",
+            "location":    "Enschede, NL",
+            "deadline":    "",
+            "url":         full_url,
+            "source":      "Twente",
+            "description": "",
+        })
+
+    logger.info("[Twente] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
 # Combined entry point
 # ---------------------------------------------------------------------------
 def scrape() -> list[dict]:
     all_jobs: list[dict] = []
     for fn in (_scrape_utrecht, _scrape_groningen, _scrape_vu,
-               _scrape_radboud, _scrape_maastricht):
+               _scrape_radboud, _scrape_maastricht,
+               _scrape_eur, _scrape_iss, _scrape_twente):
         try:
             all_jobs.extend(fn())
         except Exception as exc:
