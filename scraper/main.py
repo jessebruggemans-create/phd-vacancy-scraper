@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from scraper.digest import send_digest
-from scraper.filter import is_eligible, is_relevant, keyword_score
+from scraper.filter import is_eligible, is_english_or_dutch, is_relevant, keyword_score
 from scraper.state import cleanup_old, init_db, is_new, upsert_job
 
 from scraper.sources import academic_transfer, euraxess
@@ -51,6 +51,11 @@ def main() -> None:
 
         for job in raw:
             title = job.get("title", "")
+            desc  = job.get("description", "")
+
+            # ── Language: English and Dutch only ──────────────────────────────
+            if not is_english_or_dutch(title, desc):
+                continue
 
             # ── Eligibility: skip positions requiring an existing PhD ──────────
             if not is_eligible(title):
@@ -60,7 +65,7 @@ def main() -> None:
             # think-tank jobs bypass this (curated source, always on-topic)
             if not job.get("always_include") and not is_relevant(
                 title,
-                job.get("description", ""),
+                desc,
                 job.get("institution", ""),
             ):
                 continue

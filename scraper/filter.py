@@ -1,8 +1,9 @@
-"""Keyword-based relevance scoring and eligibility filtering.
+"""Keyword-based relevance scoring, eligibility and language filtering.
 
-is_relevant  — topic filter: does this vacancy match IR/security keywords?
-is_eligible  — seniority filter: is this position open to a master's graduate?
-keyword_score — ranking helper: how many keywords matched?
+is_relevant        — topic filter: does this vacancy match IR/security keywords?
+is_eligible        — seniority filter: is this open to a master's graduate?
+is_english_or_dutch— language filter: Dutch/English only; blocks German/French/etc.
+keyword_score      — ranking helper: how many keywords matched?
 """
 import re
 
@@ -111,3 +112,56 @@ def keyword_score(title: str, description: str = "") -> int:
     """Count distinct keyword matches — used to sort the digest by relevance."""
     haystack = f"{title} {description}".lower()
     return sum(1 for kw in _LOWER if _kw_matches(kw, haystack))
+
+
+# ── Language filter ───────────────────────────────────────────────────────────
+# We only want English or Dutch vacancies.  German and French postings are
+# detected by distinctive characters and vocabulary that don't appear in EN/NL.
+
+# German-specific characters (umlauts + Eszett): very reliable signal
+_DE_CHARS = re.compile(r"[äöüÄÖÜß]")
+
+# German job/academic words that don't appear in EN or NL
+_DE_WORDS = re.compile(
+    r"\b(wissenschaftler|wissenschaftliche|wissenschaftlichen|"
+    r"forscher|forscherin|doktorand|doktorandin|"
+    r"mitarbeiter|mitarbeiterin|lehrstuhl|forschungsgruppe|"
+    r"universität|hochschule|stiftung|bundesministerium|"
+    r"forschungszentrum|graduiertenkolleg|stipendium)\b",
+    re.IGNORECASE,
+)
+
+# French-specific accented characters (common in French, rare in EN/NL)
+_FR_CHARS = re.compile(r"[éèêëàâùûôîïçœæÉÈÊËÀÂÙÛÔÎÏÇŒÆ]")
+
+# French job/academic words
+_FR_WORDS = re.compile(
+    r"\b(chercheur|chercheuse|doctorant|doctorante|"
+    r"université|recherche|candidature|candidat|"
+    r"poste|concours|contrat|bourse|laboratoire|"
+    r"chargé|maître|directeur|direction)\b",
+    re.IGNORECASE,
+)
+
+
+def is_english_or_dutch(title: str, description: str = "") -> bool:
+    """Return True if the posting appears to be in English or Dutch.
+
+    Heuristic: detect German by umlauts OR German-specific words;
+    detect French by accented characters AND French-specific words.
+    If neither is detected, assume English/Dutch (safe default).
+    """
+    text = f"{title} {description}"
+
+    # German: umlauts alone are very reliable (ä/ö/ü/ß don't appear in EN/NL)
+    if _DE_CHARS.search(text):
+        return False
+    # German: specific academic vocabulary without special chars
+    if _DE_WORDS.search(text):
+        return False
+    # French: require BOTH accented chars AND French vocabulary
+    # (accented chars alone can appear in names/loanwords in English)
+    if _FR_CHARS.search(text) and _FR_WORDS.search(text):
+        return False
+
+    return True

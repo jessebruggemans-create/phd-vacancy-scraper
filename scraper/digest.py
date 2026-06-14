@@ -14,6 +14,25 @@ from scraper.config import (
     MANUAL_PORTALS,
 )
 
+# Country display order and labels for the digest.
+_COUNTRY_ORDER = ["BE", "NL", "DE", "FR", "Other"]
+_COUNTRY_LABELS = {
+    "BE":    "&#127463;&#127466; Belgium",
+    "NL":    "&#127475;&#127473; Netherlands",
+    "DE":    "&#127465;&#127466; Germany",
+    "FR":    "&#127467;&#127479; France",
+    "Other": "Other / International",
+}
+
+
+def _country_of(job: dict) -> str:
+    """Derive the 2-letter country code from a job's location field."""
+    loc = job.get("location", "")
+    for code in ("BE", "NL", "DE", "FR"):
+        if loc.endswith(f", {code}") or loc == code:
+            return code
+    return "Other"
+
 logger = logging.getLogger(__name__)
 
 _CSS = """
@@ -48,6 +67,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
            text-transform:uppercase;color:#999;
            border-bottom:1px solid #eee;padding-bottom:6px;
            margin:16px 0 10px}
+.country-hdr{font-size:13px;font-weight:700;color:#1a3560;
+             border-left:4px solid #1a3560;padding:4px 10px;
+             margin:22px 0 10px;background:#f5f7ff}
 .li-box{background:#f0f7ff;border-radius:8px;padding:14px 18px;
         margin:24px 0;font-size:13px;color:#444}
 .li-box a{color:#0077b5;font-weight:600;text-decoration:none}
@@ -91,6 +113,20 @@ def _render_job(job: dict, show_new_badge: bool = True) -> str:
 </div>"""
 
 
+def _group_by_country(jobs: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Return [(country_code, [jobs]), ...] in display order, skipping empty countries."""
+    by_country: dict[str, list] = defaultdict(list)
+    for j in jobs:
+        by_country[_country_of(j)].append(j)
+    return [(c, by_country[c]) for c in _COUNTRY_ORDER if by_country[c]]
+
+
+def _render_country_group(country: str, jobs: list[dict], show_new_badge: bool = True) -> str:
+    label = _COUNTRY_LABELS.get(country, country)
+    items = "".join(_render_job(j, show_new_badge=show_new_badge) for j in jobs)
+    return f'<div class="country-hdr">{label} &middot; {len(jobs)}</div>\n{items}'
+
+
 def build_html(jobs: list[dict]) -> str:
     today = date.today().strftime("%d %B %Y")
     new_jobs   = [j for j in jobs if j.get("is_new")]
@@ -111,29 +147,36 @@ def build_html(jobs: list[dict]) -> str:
   </div>
 </div>"""
 
-    # ── New vacancies section ─────────────────────────────────────────────────
+    # ── New vacancies section (grouped by country) ────────────────────────────
     if new_jobs:
-        new_items = "".join(_render_job(j, show_new_badge=False) for j in new_jobs)
+        new_body = "".join(
+            _render_country_group(c, cj, show_new_badge=False)
+            for c, cj in _group_by_country(new_jobs)
+        )
         new_section = f"""
 <div class="sec-hdr">New this week &mdash; {n_new} listing{'s' if n_new != 1 else ''}</div>
-{new_items}"""
+{new_body}"""
     else:
         new_section = """
 <div class="sec-hdr">New this week</div>
 <div class="no-new">No new listings found this week.</div>"""
 
-    # ── All active vacancies section (grouped by source) ─────────────────────
+    # ── All active vacancies section (grouped by country, then source) ────────
     if known_jobs:
-        by_source: dict[str, list] = defaultdict(list)
-        for j in known_jobs:
-            by_source[j["source"]].append(j)
-
         active_body = ""
-        for source in sorted(by_source):
-            items = "".join(_render_job(j) for j in by_source[source])
-            active_body += f"""
+        for country, cjobs in _group_by_country(known_jobs):
+            label = _COUNTRY_LABELS.get(country, country)
+            # Within each country, sub-group by source
+            by_source: dict[str, list] = defaultdict(list)
+            for j in cjobs:
+                by_source[j["source"]].append(j)
+            country_content = ""
+            for source in sorted(by_source):
+                items = "".join(_render_job(j) for j in by_source[source])
+                country_content += f"""
 <div class="src-label">{source} &middot; {len(by_source[source])}</div>
 {items}"""
+            active_body += f'<div class="country-hdr">{label} &middot; {len(cjobs)}</div>\n{country_content}'
 
         active_section = f"""
 <div class="sec-hdr active">Still active &mdash; {len(known_jobs)} listing{'s' if len(known_jobs) != 1 else ''}</div>
@@ -147,15 +190,38 @@ def build_html(jobs: list[dict]) -> str:
   <a href="{LINKEDIN_SEARCH_URL}" target="_blank">Open LinkedIn PhD search (past 7 days) &rarr;</a>
 </div>"""
 
-    portal_links = "".join(
-        f'<a href="{url}" target="_blank">{name} &rarr;</a>'
-        for name, url in MANUAL_PORTALS
-    )
+    # Build portal links grouped by country
+    portals_by_country: dict[str, list] = defaultdict(list)
+    for entry in MANUAL_PORTALS:
+        name, url, country = entry
+        portals_by_country[country].append((name, url))
+
+    portal_sections = ""
+    for code in ("BE", "NL", "DE", "FR"):
+        entries = portals_by_country.get(code, [])
+        if not entries:
+            continue
+        flag_label = _COUNTRY_LABELS.get(code, code)
+        links = "".join(f'<a href="{u}" target="_blank">{n} &rarr;</a> ' for n, u in entries)
+        portal_sections += f"<div><strong>{flag_label}:</strong> {links}</div>"
+
     portals_box = f"""
 <div class="portals">
-  <strong>Portals not scrapeable (JS-rendered) &mdash; check manually:</strong>
-  {portal_links}
+  <strong>Portals not auto-scrapeable &mdash; check manually:</strong>
+  {portal_sections}
 </div>"""
+
+    # Build footer source list
+    scraped = (
+        "AcademicTransfer &middot; EURAXESS (BE/NL/DE/FR) &middot; "
+        "UGent &middot; VUB &middot; UHasselt &middot; "
+        "Utrecht &middot; Groningen &middot; VU &middot; Radboud &middot; Maastricht &middot; "
+        "Egmont &middot; HCSS &middot; Asser &middot; Flemish&nbsp;Peace&nbsp;Institute &middot; "
+        "SWP&nbsp;Berlin &middot; DGAP &middot; IFSH"
+    )
+    manual = " &middot; ".join(
+        n for n, _, _ in MANUAL_PORTALS
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -179,12 +245,8 @@ def build_html(jobs: list[dict]) -> str:
     {portals_box}
   </div>
   <div class="footer">
-    Scraped: AcademicTransfer &middot; EURAXESS &middot; UGent &middot; VUB &middot;
-    UHasselt &middot; Utrecht &middot; Groningen &middot; VU &middot; Radboud &middot;
-    Maastricht &middot; Egmont &middot; HCSS &middot; Asser &middot;
-    Flemish&nbsp;Peace&nbsp;Institute &middot; SWP&nbsp;Berlin<br>
-    Manual portals above: KU&nbsp;Leuven &middot; UAntwerp &middot; Leiden &middot;
-    UvA &middot; Tilburg &middot; EUR &middot; IISS &middot; Clingendael
+    Scraped automatically: {scraped}<br>
+    Manual portals above: {manual}
   </div>
 </div>
 </body>

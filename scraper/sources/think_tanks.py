@@ -330,12 +330,115 @@ def _scrape_swp() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# DGAP (Deutsche Gesellschaft für Auswärtige Politik) -- Berlin, DE
+# Static Drupal page; job cards use class 'node--type-dgap-job'.
+# German-language titles will be caught by is_english_or_dutch(); English
+# positions (e.g. research fellowships) pass through.
+# ---------------------------------------------------------------------------
+_DGAP_BASE = "https://dgap.org"
+_DGAP_URL  = f"{_DGAP_BASE}/de/karriere-in-der-dgap-jobs-stellen"
+
+
+def _scrape_dgap() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_DGAP_URL)
+    if not soup:
+        logger.info("[DGAP] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    for art in soup.select("article[class*='node--type-dgap-job']"):
+        a = art.select_one("h3 a[href*='/de/dgap/jobs/'], h2 a[href*='/de/dgap/jobs/']")
+        if not a:
+            # Fallback: any link pointing to /de/dgap/jobs/
+            a = art.select_one("a[href*='/de/dgap/jobs/']")
+        if not a:
+            continue
+        href  = make_absolute(a.get("href", ""), _DGAP_BASE)
+        title = clean_text(a)
+        if not title or len(title) < 5:
+            continue
+
+        jid = job_id(title, href)
+        if jid in seen:
+            continue
+        seen.add(jid)
+
+        # Extract deadline if shown (e.g. "Bewerbungsfrist 14. Juni 2026")
+        dl_el = art.select_one("[class*='deadline'], [class*='date']")
+        deadline = ""
+        if not dl_el:
+            card_text = art.get_text()
+            import re as _re2
+            m = _re2.search(r"Bewerbungsfrist\s+(.{5,25}?)(?:\n|$|\|)", card_text)
+            deadline = m.group(1).strip() if m else ""
+
+        jobs.append(_tag({
+            "id":          jid,
+            "title":       title,
+            "institution": "DGAP",
+            "location":    "Berlin, DE",
+            "deadline":    deadline,
+            "url":         href,
+            "source":      "DGAP",
+            "description": "",
+        }))
+
+    logger.info("[DGAP] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
+# IFSH Hamburg (Institut für Friedensforschung und Sicherheitspolitik) -- DE
+# Static page with job links at /karriere/details/...
+# Focuses on arms control, European security, peace research.
+# ---------------------------------------------------------------------------
+_IFSH_BASE = "https://www.ifsh.de"
+_IFSH_URL  = f"{_IFSH_BASE}/karriere"
+
+
+def _scrape_ifsh() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_IFSH_URL)
+    if not soup:
+        logger.info("[IFSH] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    for a in soup.select("a[href*='/karriere/details/']"):
+        href  = make_absolute(a.get("href", ""), _IFSH_BASE)
+        title = clean_text(a)
+        if not title or len(title) < 8:
+            continue
+
+        jid = job_id(title, href)
+        if jid in seen:
+            continue
+        seen.add(jid)
+
+        jobs.append(_tag({
+            "id":          jid,
+            "title":       title,
+            "institution": "IFSH Hamburg",
+            "location":    "Hamburg, DE",
+            "deadline":    "",
+            "url":         href,
+            "source":      "IFSH",
+            "description": "",
+        }))
+
+    logger.info("[IFSH] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
 # Combined entry point
 # ---------------------------------------------------------------------------
 def scrape() -> list[dict]:
     all_jobs: list[dict] = []
     for fn in (_scrape_egmont, _scrape_clingendael, _scrape_hcss,
-               _scrape_fpi, _scrape_asser, _scrape_swp):
+               _scrape_fpi, _scrape_asser, _scrape_swp,
+               _scrape_dgap, _scrape_ifsh):
         try:
             all_jobs.extend(fn())
         except Exception as exc:

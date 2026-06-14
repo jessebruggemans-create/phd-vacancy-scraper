@@ -93,15 +93,23 @@ LINKEDIN_SEARCH_URL = (
 )
 
 # ── Portals that cannot be scraped (JS-rendered) — linked in every digest ─────
-MANUAL_PORTALS: list[tuple[str, str]] = [
-    ("KU Leuven", "https://www.kuleuven.be/personeel/jobsite/jobs/phd?lang=en"),
-    ("UAntwerp", "https://www.uantwerpen.be/nl/jobs/vacatures/"),
-    ("Leiden", "https://careers.universiteitleiden.nl/"),
-    ("UvA", "https://www.uva.nl/en/about-the-uva/working-at-the-uva/vacancies/vacancies.html"),
-    ("Tilburg", "https://www.tilburguniversity.edu/about/working-at-tilburg-university"),
-    ("EUR", "https://www.eur.nl/en/about-eur/working-eur/vacancies"),
-    ("IISS", "https://www.iiss.org/careers/"),
-    ("Clingendael", "https://www.careers.clingendael.org/vacancy-jobs/overview-jobs-extern"),
+# Grouped by country: Belgium (BE), Netherlands (NL), Germany (DE), France (FR)
+MANUAL_PORTALS: list[tuple[str, str, str]] = [
+    # Belgium
+    ("KU Leuven",    "https://www.kuleuven.be/personeel/jobsite/jobs/phd?lang=en",                     "BE"),
+    ("UAntwerp",     "https://www.uantwerpen.be/nl/jobs/vacatures/",                                    "BE"),
+    # Netherlands
+    ("Leiden",       "https://careers.universiteitleiden.nl/",                                          "NL"),
+    ("UvA",          "https://www.uva.nl/en/about-the-uva/working-at-the-uva/vacancies/vacancies.html", "NL"),
+    ("Tilburg",      "https://www.tilburguniversity.edu/about/working-at-tilburg-university",            "NL"),
+    ("EUR",          "https://www.eur.nl/en/about-eur/working-eur/vacancies",                           "NL"),
+    ("Clingendael",  "https://www.careers.clingendael.org/vacancy-jobs/overview-jobs-extern",           "NL"),
+    ("IISS",         "https://www.iiss.org/careers/",                                                   "NL"),
+    # Germany
+    ("Hertie School","https://www.hertie-school.org/en/jobs",                                           "DE"),
+    # France
+    ("Sciences Po",  "https://www.sciencespo.fr/admissions/en/phd/",                                    "FR"),
+    ("IFRI",         "https://www.ifri.org/en/recruitment",                                             "FR"),
 ]
 
 # ── HTTP politeness ───────────────────────────────────────────────────────────
