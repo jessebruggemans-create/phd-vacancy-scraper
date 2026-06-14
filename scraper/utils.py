@@ -23,11 +23,11 @@ HEADERS = {
 }
 
 
-def fetch(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup | None:
+def fetch(url: str, retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> BeautifulSoup | None:
     """GET *url* and return a BeautifulSoup object, or None on failure."""
     for attempt in range(retries + 1):
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            resp = requests.get(url, headers=HEADERS, timeout=timeout)
             resp.raise_for_status()
             time.sleep(REQUEST_DELAY)
             return BeautifulSoup(resp.text, "lxml")

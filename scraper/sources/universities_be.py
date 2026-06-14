@@ -23,7 +23,7 @@ _VUB_URL = "https://jobs.vub.be/go/NL_PHD/3776201/"
 def _scrape_vub() -> list[dict]:
     jobs = []
     seen: set[str] = set()
-    soup = fetch(_VUB_URL)
+    soup = fetch(_VUB_URL, retries=0, timeout=8)
     if not soup:
         logger.info("[VUB] 0 listings.")
         return jobs
