@@ -1,7 +1,9 @@
 """Scraper for AcademicTransfer.com.
 
-AcademicTransfer is the primary Dutch/Belgian academic jobs portal.
-We request the NL+BE job listings page and walk pagination.
+AcademicTransfer is a Nuxt.js SPA: only the first 10 results are server-rendered;
+there is no working page-number parameter. We work around this by running a set
+of targeted keyword searches that each return the top 10 most relevant results,
+then merging and deduplicating the results.
 """
 import logging
 
@@ -10,21 +12,33 @@ from scraper.utils import clean_text, fetch, job_id, make_absolute
 logger = logging.getLogger(__name__)
 
 BASE = "https://www.academictransfer.com"
-START_URL = f"{BASE}/en/jobs/?q=&active=1&country_list=NL%2CBE"
+
+# Each search returns the 10 best-matching NL/BE jobs for that query.
+# Together they cover the full breadth of our keyword list.
+SEARCHES = [
+    "phd",
+    "international+relations",
+    "security+studies",
+    "political+science",
+    "peace+conflict",
+    "governance+policy",
+    "defence+military",
+    "european+security",
+    "terrorism+radicalisation",
+    "intelligence",
+]
+
+def _search_url(q: str) -> str:
+    return f"{BASE}/en/jobs/?q={q}&active=1&country_list=NL%2CBE"
 
 
-def _parse_page(soup, base: str) -> list[dict]:
+def _parse_page(soup) -> list[dict]:
     jobs = []
-
-    # AcademicTransfer renders job cards as <article> elements (Tailwind-based layout).
-    articles = soup.select("article") or soup.select("li.search-result")
-
-    for art in articles:
-        # ── URL + title ───────────────────────────────────────────────────────
+    for art in soup.select("article"):
         link = art.select_one("a[href*='/jobs/']") or art.select_one("a")
         if not link:
             continue
-        url = make_absolute(link.get("href", ""), base)
+        url = make_absolute(link.get("href", ""), BASE)
 
         heading = (
             art.select_one("h3")
@@ -36,38 +50,19 @@ def _parse_page(soup, base: str) -> list[dict]:
         if not title:
             continue
 
-        # ── Institution ───────────────────────────────────────────────────────
-        # Logo img has alt text = institution name (most reliable).
         logo = art.select_one("img[alt]")
         institution = logo["alt"].strip() if logo and logo.get("alt") else ""
 
-        # ── Location ──────────────────────────────────────────────────────────
-        # Location span contains an inline SVG icon + city name as trailing text.
-        # Select the span that sits alongside the SVG location icon.
-        loc_span = art.select_one("span.text-at-small svg ~ *") or None
-        if loc_span:
-            location = clean_text(loc_span)
-        else:
-            # Fallback: last text-at-small span that isn't a time element
-            spans = art.select("span.text-at-small")
-            # The location span is the last one with a plain text child
-            loc_text = ""
-            for sp in reversed(spans):
-                txt = clean_text(sp)
-                if txt and not sp.select("time"):
-                    loc_text = txt
-                    break
-            location = loc_text or "NL / BE"
+        location = "NL / BE"
+        for sp in reversed(art.select("span.text-at-small")):
+            txt = clean_text(sp)
+            if txt and not sp.select("time"):
+                location = txt
+                break
 
-        # ── Deadline ──────────────────────────────────────────────────────────
-        deadline_time = art.select_one("time[datetime]")
-        if deadline_time:
-            deadline = deadline_time.get("datetime", "")[:10]
-        else:
-            dl_el = art.select_one("[class*='deadline'], [class*='closing']")
-            deadline = clean_text(dl_el) if dl_el else ""
+        deadline_tag = art.select_one("time[datetime]")
+        deadline = deadline_tag.get("datetime", "")[:10] if deadline_tag else ""
 
-        # ── Short description ─────────────────────────────────────────────────
         desc_el = art.select_one("p.text-at-body") or art.select_one("p")
         description = clean_text(desc_el)[:220] if desc_el else ""
 
@@ -81,39 +76,21 @@ def _parse_page(soup, base: str) -> list[dict]:
             "source":      "AcademicTransfer",
             "description": description,
         })
-
     return jobs
 
 
 def scrape() -> list[dict]:
-    """Fetch all pages and return a flat list of job dicts."""
-    all_jobs: list[dict] = []
-    url: str | None = START_URL
-    page = 0
-    max_pages = 15  # safety ceiling
+    seen: dict[str, dict] = {}  # id -> job, for deduplication
 
-    while url and page < max_pages:
-        page += 1
-        logger.info("[AcademicTransfer] page %d -> %s", page, url)
+    for q in SEARCHES:
+        url = _search_url(q)
+        logger.info("[AcademicTransfer] search '%s' -> %s", q, url)
         soup = fetch(url)
         if soup is None:
-            break
+            continue
+        for job in _parse_page(soup):
+            seen.setdefault(job["id"], job)
 
-        jobs = _parse_page(soup, BASE)
-        if not jobs and page > 1:
-            break  # past the last page
-
-        all_jobs.extend(jobs)
-
-        # Next-page link
-        next_a = soup.select_one(
-            "a[rel='next'], [class*='pagination'] a[aria-label='Next'], "
-            "[class*='next'] a, a.next-page"
-        )
-        if next_a and next_a.get("href"):
-            url = make_absolute(next_a["href"], BASE)
-        else:
-            url = None
-
-    logger.info("[AcademicTransfer] collected %d listings.", len(all_jobs))
+    all_jobs = list(seen.values())
+    logger.info("[AcademicTransfer] collected %d unique listings.", len(all_jobs))
     return all_jobs

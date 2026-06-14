@@ -1,9 +1,8 @@
-"""Main orchestrator — runs all scrapers and sends the weekly digest."""
+"""Main orchestrator -- runs all scrapers and sends the weekly digest."""
 import logging
 import os
 import sys
 
-# Load .env for local development (no-op in GitHub Actions where secrets are env vars)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -12,7 +11,7 @@ except ImportError:
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    format="%(asctime)s %(levelname)-8s %(name)s -- %(message)s",
     datefmt="%H:%M:%S",
     stream=sys.stdout,
 )
@@ -20,34 +19,27 @@ logger = logging.getLogger(__name__)
 
 from scraper.digest import send_digest
 from scraper.filter import is_relevant, keyword_score
-from scraper.state import cleanup_old, init_db, is_seen, mark_seen
+from scraper.state import cleanup_old, init_db, is_new, upsert_job
 
-# ── Source scrapers ───────────────────────────────────────────────────────────
-# Uncomment each module as we build it in subsequent steps.
 from scraper.sources import academic_transfer, euraxess
-
-# from scraper.sources import universities_be  # Step 3
-# from scraper.sources import universities_nl  # Step 4
-# from scraper.sources import departments      # Step 5
-# from scraper.sources import think_tanks      # Step 5
+from scraper.sources import universities_be, universities_nl, think_tanks
 
 ALL_SCRAPERS = [
     academic_transfer.scrape,
     euraxess.scrape,
-    # universities_be.scrape,
-    # universities_nl.scrape,
-    # departments.scrape,
-    # think_tanks.scrape,
+    universities_be.scrape,
+    universities_nl.scrape,
+    think_tanks.scrape,
 ]
 
 
 def main() -> None:
-    logger.info("=== PhD Vacancy Scraper — starting ===")
+    logger.info("=== PhD Vacancy Scraper -- starting ===")
     os.makedirs("data", exist_ok=True)
     init_db()
     cleanup_old(days=120)
 
-    new_jobs: list[dict] = []
+    active_jobs: list[dict] = []
 
     for scrape_fn in ALL_SCRAPERS:
         name = scrape_fn.__module__.split(".")[-1]
@@ -64,19 +56,33 @@ def main() -> None:
                 job.get("institution", ""),
             ):
                 continue
-            if is_seen(job["id"]):
-                continue
 
-            mark_seen(job["id"], job["title"], job["url"], job["source"])
-            new_jobs.append(job)
+            job["is_new"] = is_new(job["id"])
+            upsert_job(job["id"], job["title"], job["url"], job["source"])
+            active_jobs.append(job)
 
-    # Sort by relevance score (most keyword matches first), then title
-    new_jobs.sort(
-        key=lambda j: (-keyword_score(j["title"], j.get("description", "")), j["title"])
+    # Deduplicate by job id (same vacancy may appear on multiple sources)
+    seen_ids: set[str] = set()
+    deduped: list[dict] = []
+    for job in active_jobs:
+        if job["id"] not in seen_ids:
+            seen_ids.add(job["id"])
+            deduped.append(job)
+
+    # Sort: new first, then by keyword relevance, then title
+    deduped.sort(
+        key=lambda j: (
+            0 if j["is_new"] else 1,
+            -keyword_score(j["title"], j.get("description", "")),
+            j["title"],
+        )
     )
 
-    logger.info("=== %d new relevant jobs found ===", len(new_jobs))
-    send_digest(new_jobs)
+    new_count = sum(1 for j in deduped if j["is_new"])
+    logger.info(
+        "=== %d active relevant jobs (%d new) ===", len(deduped), new_count
+    )
+    send_digest(deduped)
     logger.info("=== Done ===")
 
 

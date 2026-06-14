@@ -7,3 +7,4 @@ data/
 .DS_Store
 .claude/
 inspect_*.py
+test_full_pipeline.py

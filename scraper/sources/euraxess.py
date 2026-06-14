@@ -69,35 +69,35 @@ def _parse_html(soup) -> list[dict]:
 
 
 def scrape() -> list[dict]:
-    """Scrape the EURAXESS filtered search page for PhD positions in NL/BE."""
+    """Scrape the EURAXESS filtered search page for PhD positions in NL/BE.
+
+    EURAXESS uses &page=N (0-indexed) URL parameter for pagination;
+    there is no rel=next link in the HTML.
+    """
     all_jobs: list[dict] = []
-    url: str | None = SEARCH_URL
-    page = 0
+    seen_ids: set[str] = set()
     max_pages = 10
 
-    while url and page < max_pages:
-        page += 1
-        logger.info("[EURAXESS] page %d -> %s", page, url)
+    for page_num in range(max_pages):
+        if page_num == 0:
+            url = SEARCH_URL
+        else:
+            url = f"{SEARCH_URL}&page={page_num}"
+
+        logger.info("[EURAXESS] page %d -> %s", page_num + 1, url)
         soup = fetch(url)
         if soup is None:
             break
 
         jobs = _parse_html(soup)
-        if not jobs and page > 1:
+        if not jobs:
             break
 
+        new_ids = {j["id"] for j in jobs}
+        if new_ids <= seen_ids:
+            break  # repeated page -- stop
+        seen_ids |= new_ids
         all_jobs.extend(jobs)
-
-        # Next-page link (ECL pagination uses rel="next" or aria-label="Next page")
-        next_a = soup.select_one(
-            "a[rel='next'], "
-            "[class*='ecl-pagination'] a[aria-label*='Next'], "
-            "[class*='pager'] a[title='Go to next page']"
-        )
-        if next_a and next_a.get("href"):
-            url = make_absolute(next_a["href"], BASE)
-        else:
-            url = None
 
     logger.info("[EURAXESS] collected %d listings.", len(all_jobs))
     return all_jobs
