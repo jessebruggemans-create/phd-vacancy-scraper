@@ -1,12 +1,22 @@
 """Scrapers for Dutch universities.
 
-Confirmed working: Utrecht (uu.nl), Groningen (werkenbij.rug.nl), VU (workingat.vu.nl).
-Sites that require JavaScript (Leiden, UvA, Radboud, Maastricht, Tilburg, EUR)
-return empty lists gracefully -- their vacancies appear on AcademicTransfer/EURAXESS.
+Confirmed working:
+  Utrecht      -- uu.nl (HTML, paginated)
+  Groningen    -- werkenbij.rug.nl (HTML, paginated)
+  VU Amsterdam -- workingat.vu.nl (HTML)
+  Radboud      -- ru.nl RSS feed (/werken-bij/vacatures/feed)
+  Maastricht   -- vacancies.maastrichtuniversity.nl (HTML, ?q=phd+student)
+
+JS-rendered / blocked (appear on AcademicTransfer/EURAXESS instead):
+  Leiden, UvA, Tilburg, EUR
 """
 import logging
+import re
+import xml.etree.ElementTree as ET
 
-from scraper.utils import clean_text, fetch, job_id, make_absolute
+from bs4 import BeautifulSoup
+
+from scraper.utils import clean_text, fetch, fetch_raw, job_id, make_absolute
 
 logger = logging.getLogger(__name__)
 
@@ -174,11 +184,120 @@ def _scrape_vu() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Radboud University -- RSS feed (static XML, all departments)
+# The feed contains all vacancies; we rely on the relevance filter to keep
+# only IR/security/political-science positions.
+# Deadline is embedded in the HTML description as "Reageer uiterlijk: YYYY-MM-DD"
+# ---------------------------------------------------------------------------
+_RADBOUD_RSS = "https://www.ru.nl/werken-bij/vacatures/feed"
+
+
+def _scrape_radboud() -> list[dict]:
+    jobs: list[dict] = []
+    raw = fetch_raw(_RADBOUD_RSS)
+    if not raw:
+        logger.info("[Radboud] 0 listings (feed unavailable).")
+        return jobs
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        logger.warning("[Radboud] RSS parse error: %s", exc)
+        return jobs
+
+    channel = root.find("channel")
+    items   = channel.findall("item") if channel is not None else root.findall(".//item")
+
+    for item in items:
+        title    = (item.findtext("title") or "").strip()
+        link     = (item.findtext("link")  or "").strip()
+        desc_html = item.findtext("description") or ""
+
+        # Strip HTML tags from the description
+        desc_text = BeautifulSoup(desc_html, "lxml").get_text(" ").strip()
+
+        # Extract deadline from "Reageer uiterlijk: YYYY-MM-DD"
+        dl_match = re.search(r"Reageer uiterlijk:\s*(\d{4}-\d{2}-\d{2})", desc_text)
+        deadline = dl_match.group(1) if dl_match else ""
+
+        description = desc_text[:220]
+
+        if not title or not link:
+            continue
+
+        jobs.append({
+            "id":          job_id(title, link),
+            "title":       title,
+            "institution": "Radboud University",
+            "location":    "Nijmegen, NL",
+            "deadline":    deadline,
+            "url":         link,
+            "source":      "Radboud",
+            "description": description,
+        })
+
+    logger.info("[Radboud] %d listings from RSS.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
+# Maastricht University -- static HTML search filtered by "phd student"
+# URL: vacancies.maastrichtuniversity.nl/search/?q=phd+student
+# Jobs listed as: span.jobTitle.visible-phone > a.jobTitle-link
+# Department: span.jobFacility (closest ancestor that contains it)
+# ---------------------------------------------------------------------------
+_UM_BASE = "https://vacancies.maastrichtuniversity.nl"
+_UM_URL  = f"{_UM_BASE}/search/?q=phd+student"
+
+
+def _scrape_maastricht() -> list[dict]:
+    jobs: list[dict] = []
+    # Simple single-page fetch (agent confirmed 25 results, 1 page for this query)
+    soup = fetch(_UM_URL)
+    if not soup:
+        logger.info("[Maastricht] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    # visible-phone variant avoids desktop duplicates
+    for a in soup.select("span.jobTitle.visible-phone a.jobTitle-link"):
+        href  = make_absolute(a.get("href", ""), _UM_BASE)
+        title = clean_text(a)
+        if not title:
+            continue
+
+        # Department from nearest ancestor <li> or <tr>
+        ancestor = a.find_parent("li") or a.find_parent("tr") or a.find_parent("div")
+        dept_el  = ancestor.select_one("span.jobFacility") if ancestor else None
+        dept     = clean_text(dept_el) if dept_el else ""
+
+        jid = job_id(title, href)
+        if jid in seen:
+            continue
+        seen.add(jid)
+
+        jobs.append({
+            "id":          jid,
+            "title":       title,
+            "institution": "Maastricht University",
+            "location":    "Maastricht, NL",
+            "deadline":    "",
+            "url":         href,
+            "source":      "Maastricht",
+            "description": dept,
+        })
+
+    logger.info("[Maastricht] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
 # Combined entry point
 # ---------------------------------------------------------------------------
 def scrape() -> list[dict]:
     all_jobs: list[dict] = []
-    for fn in (_scrape_utrecht, _scrape_groningen, _scrape_vu):
+    for fn in (_scrape_utrecht, _scrape_groningen, _scrape_vu,
+               _scrape_radboud, _scrape_maastricht):
         try:
             all_jobs.extend(fn())
         except Exception as exc:

@@ -11,6 +11,7 @@ from scraper.config import (
     GMAIL_RECIPIENT,
     GMAIL_SENDER,
     LINKEDIN_SEARCH_URL,
+    MANUAL_PORTALS,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .li-box{background:#f0f7ff;border-radius:8px;padding:14px 18px;
         margin:24px 0;font-size:13px;color:#444}
 .li-box a{color:#0077b5;font-weight:600;text-decoration:none}
+.portals{background:#fff8e1;border-radius:8px;padding:14px 18px;
+         margin:20px 0;font-size:12px;color:#555;line-height:2}
+.portals strong{display:block;margin-bottom:4px;font-size:13px;color:#333}
+.portals a{color:#0066cc;text-decoration:none;margin-right:12px;white-space:nowrap}
 .no-new{padding:20px 0;color:#888;font-size:13px;font-style:italic}
 .footer{padding:18px 32px;background:#f9f9f9;font-size:11px;color:#aaa;
         border-top:1px solid #eee;line-height:1.7}
@@ -142,6 +147,16 @@ def build_html(jobs: list[dict]) -> str:
   <a href="{LINKEDIN_SEARCH_URL}" target="_blank">Open LinkedIn PhD search (past 7 days) &rarr;</a>
 </div>"""
 
+    portal_links = "".join(
+        f'<a href="{url}" target="_blank">{name} &rarr;</a>'
+        for name, url in MANUAL_PORTALS
+    )
+    portals_box = f"""
+<div class="portals">
+  <strong>Portals not scrapeable (JS-rendered) &mdash; check manually:</strong>
+  {portal_links}
+</div>"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -161,13 +176,15 @@ def build_html(jobs: list[dict]) -> str:
     {new_section}
     {active_section}
     {linkedin_box}
+    {portals_box}
   </div>
   <div class="footer">
-    Sources: AcademicTransfer &middot; EURAXESS &middot;
-    KU&nbsp;Leuven &middot; UGent &middot; UAntwerp &middot; VUB &middot; UHasselt &middot;
-    Leiden &middot; UvA &middot; Utrecht &middot; Groningen &middot; VU &middot;
-    Radboud &middot; Maastricht &middot; Tilburg &middot; EUR &middot;
-    Clingendael &middot; HCSS &middot; Egmont &middot; Asser &middot; Flemish&nbsp;Peace&nbsp;Institute
+    Scraped: AcademicTransfer &middot; EURAXESS &middot; UGent &middot; VUB &middot;
+    UHasselt &middot; Utrecht &middot; Groningen &middot; VU &middot; Radboud &middot;
+    Maastricht &middot; Egmont &middot; HCSS &middot; Asser &middot;
+    Flemish&nbsp;Peace&nbsp;Institute &middot; SWP&nbsp;Berlin<br>
+    Manual portals above: KU&nbsp;Leuven &middot; UAntwerp &middot; Leiden &middot;
+    UvA &middot; Tilburg &middot; EUR &middot; IISS &middot; Clingendael
   </div>
 </div>
 </body>

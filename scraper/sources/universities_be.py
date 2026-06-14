@@ -1,10 +1,10 @@
 """Scrapers for Flemish universities.
 
-KU Leuven, UGent, UAntwerp: all use JS-rendered ATS portals and are not
-directly scrapeable -- their vacancies appear on AcademicTransfer / EURAXESS.
-
-VUB: the SmartRecruiters PhD listing page renders job links in static HTML.
-UHasselt: fully static listing, confirmed working.
+KU Leuven, UAntwerp: JS-rendered ATS portals -- appear on AcademicTransfer/EURAXESS.
+UGent: doctoral-fellow listing at /en/work/scientific is static HTML (table rows).
+VUB: SmartRecruiters portal at jobs.vub.be (times out from GitHub CI -- kept with
+     short timeout so it fails fast; their jobs appear on AcademicTransfer too).
+UHasselt: fully static listing.
 """
 import logging
 
@@ -107,11 +107,70 @@ def _scrape_uhasselt() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# UGent -- doctoral-fellow listing (static HTML table)
+# URL: https://www.ugent.be/en/work/scientific
+# Each <tr> contains: [link "Doctoral fellow"] [department] [%] [deadline]
+# The department cell is used as description for keyword matching.
+# ---------------------------------------------------------------------------
+_UGENT_BASE = "https://www.ugent.be"
+_UGENT_URL  = f"{_UGENT_BASE}/en/work/scientific"
+
+
+def _scrape_ugent() -> list[dict]:
+    jobs: list[dict] = []
+    soup = fetch(_UGENT_URL)
+    if not soup:
+        logger.info("[UGent] 0 listings.")
+        return jobs
+
+    seen: set[str] = set()
+    for a in soup.select("a[href*='doctoral-fellow-']"):
+        href = a.get("href", "")
+        if not href:
+            continue
+        full_url = make_absolute(href, _UGENT_BASE)
+
+        # Grab department and deadline from sibling <td> elements in the same <tr>
+        tr = a.find_parent("tr")
+        dept = ""
+        deadline = ""
+        if tr:
+            tds = tr.find_all("td")
+            if len(tds) > 1:
+                dept = clean_text(tds[1])
+            if len(tds) > 3:
+                # deadline format: "2026-07-08 23:59:00"  →  take first 10 chars
+                raw_dl = clean_text(tds[3])
+                deadline = raw_dl[:10] if raw_dl else ""
+
+        jid = job_id("Doctoral Fellow " + dept, full_url)
+        if jid in seen:
+            continue
+        seen.add(jid)
+
+        jobs.append({
+            "id":          jid,
+            "title":       "Doctoral Fellow",
+            "institution": "Ghent University",
+            "location":    "Ghent, BE",
+            "deadline":    deadline,
+            "url":         full_url,
+            "source":      "UGent",
+            # Department is stored as description for keyword matching;
+            # e.g. "Department of Political Sciences" matches "political science"
+            "description": dept,
+        })
+
+    logger.info("[UGent] %d listings.", len(jobs))
+    return jobs
+
+
+# ---------------------------------------------------------------------------
 # Combined entry point
 # ---------------------------------------------------------------------------
 def scrape() -> list[dict]:
     all_jobs: list[dict] = []
-    for fn in (_scrape_vub, _scrape_uhasselt):
+    for fn in (_scrape_vub, _scrape_uhasselt, _scrape_ugent):
         try:
             all_jobs.extend(fn())
         except Exception as exc:

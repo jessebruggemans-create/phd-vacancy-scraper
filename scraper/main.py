@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from scraper.digest import send_digest
-from scraper.filter import is_relevant, keyword_score
+from scraper.filter import is_eligible, is_relevant, keyword_score
 from scraper.state import cleanup_old, init_db, is_new, upsert_job
 
 from scraper.sources import academic_transfer, euraxess
@@ -50,8 +50,16 @@ def main() -> None:
             continue
 
         for job in raw:
-            if not is_relevant(
-                job.get("title", ""),
+            title = job.get("title", "")
+
+            # ── Eligibility: skip positions requiring an existing PhD ──────────
+            if not is_eligible(title):
+                continue
+
+            # ── Relevance: topic must match IR/security keywords ──────────────
+            # think-tank jobs bypass this (curated source, always on-topic)
+            if not job.get("always_include") and not is_relevant(
+                title,
                 job.get("description", ""),
                 job.get("institution", ""),
             ):
