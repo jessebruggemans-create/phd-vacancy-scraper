@@ -1,0 +1,50 @@
+name: PhD Vacancy Scraper
+
+on:
+  schedule:
+    # 07:00 UTC = 08:00 CET (winter) / 09:00 CEST (summer) — every Monday
+    - cron: "0 7 * * 1"
+  # Allow a manual run from the GitHub Actions UI (useful for testing)
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The SQLite database persists between runs via the Actions cache.
+      # Each run restores the previous DB, adds new entries, and saves a fresh copy.
+      - name: Restore job database
+        uses: actions/cache@v4
+        with:
+          path: data/
+          key: seen-jobs-${{ github.run_number }}
+          restore-keys: seen-jobs-
+
+      - name: Run scraper
+        env:
+          GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+          GMAIL_RECIPIENT: ${{ secrets.GMAIL_RECIPIENT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          mkdir -p data
+          python -m scraper.main
